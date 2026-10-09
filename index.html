@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NuosepHP 10,000 L – Piping 3D</title>
+<style>
+:root{box-sizing:border-box;--bg:#eef1f5;--fg:#1b2430;--pn:rgba(255,255,255,.92);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161e;--fg:#e8edf3;--pn:rgba(22,30,40,.92)}}
+:root[data-theme="dark"]{--bg:#10161e;--fg:#e8edf3;--pn:rgba(22,30,40,.92)}
+html,body{height:100%;margin:0}body{background:var(--bg);color:var(--fg);font:13px/1.45 "Sarabun",system-ui,sans-serif;overflow:hidden}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.p{position:absolute;background:var(--pn);border-radius:10px;padding:10px 12px;box-shadow:0 2px 10px rgba(0,0,0,.2);max-width:min(310px,86vw)}
+#lg{left:10px;top:calc(10px + env(safe-area-inset-top,0px));max-height:55vh;overflow:auto}#lg div{display:flex;align-items:center;gap:8px;margin:2px 0}
+#lg i{width:22px;height:5px;border-radius:3px;display:inline-block;flex:none}#lg b{display:block;margin-bottom:4px}
+#ct{right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+button{font:inherit;padding:5px 10px;border-radius:6px;border:1px solid #8896;background:transparent;color:inherit;cursor:pointer;margin:2px}
+button.on{background:#3b82f6;color:#fff;border-color:#3b82f6}small{opacity:.8}#in{font-weight:600;min-height:1.4em}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="p" id="lg"><b>NuosepHP 10,000 L – ระบบท่อ 3D</b></div>
+<div class="p" id="ct"><div id="in">ลากกลุ่มอุปกรณ์เพื่อย้าย</div>
+<button id="ed" class="on">โหมดย้าย: เปิด</button><button id="sn">Snap 0.5 m: ปิด</button><button id="rl">รีเซ็ตทั้งหมด</button><button id="rp">รีเซ็ตท่อที่เลือก</button><br>
+<button id="pl">หยุดการไหล</button><button id="rs">รีเซ็ตมุมมอง</button><br>
+<small>จับอุปกรณ์แล้วลาก = ย้ายทั้งกลุ่ม (ท่อวิ่งตามอัตโนมัติ) · คลิกที่ท่อ = เลือก แล้วลากลูกศร <b style='color:#ff3b3b'>X</b> <b style='color:#37d67a'>Y(สูง)</b> <b style='color:#3b82ff'>Z</b> เพื่อขยับแนวท่อ · ลากที่ว่าง = หมุนมุมมอง · ล้อเมาส์/pinch = ซูม<br>ขนาดท่อสัมพัทธ์กัน ขยายเพื่อให้เห็น · ตำแหน่งอุปกรณ์เดิมเป็นแบบสมมติ</small></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const T=THREE,cv=document.getElementById('c'),$=id=>document.getElementById(id);
+const RN=new T.WebGLRenderer({canvas:cv,antialias:true});RN.setPixelRatio(Math.min(devicePixelRatio,2));
+const S=new T.Scene(),cam=new T.PerspectiveCamera(45,1,.1,600);
+const dk=document.documentElement.dataset.theme?document.documentElement.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+S.background=new T.Color(dk?0x10161e:0xeef1f5);
+S.add(new T.HemisphereLight(0xffffff,0x667788,.85));const dl=new T.DirectionalLight(0xffffff,.7);dl.position.set(30,60,20);S.add(dl);
+const M={},mat=c=>M[c]||(M[c]=new T.MeshLambertMaterial({color:c}));
+const fl=new T.Mesh(new T.PlaneGeometry(56,82),new T.MeshLambertMaterial({color:dk?0x1d2733:0xd8dde4}));fl.rotation.x=-Math.PI/2;fl.position.set(1,-.01,3.2);S.add(fl);
+const gh=new T.GridHelper(100,50,0x8899aa,0x8899aa);gh.material.transparent=true;gh.material.opacity=.18;S.add(gh);
+const LM={};
+function label(par,t,x,z,h,col){const k=t+col;if(!LM[k]){const c=document.createElement('canvas');c.width=512;c.height=64;const g=c.getContext('2d');g.font='bold 30px sans-serif';g.textAlign='center';
+ const w=Math.min(500,g.measureText(t).width+24);g.fillStyle='rgba(20,28,38,.82)';g.fillRect(256-w/2,8,w,48);g.fillStyle=col||'#fff';g.fillText(t,256,44,490);
+ LM[k]=new T.SpriteMaterial({map:new T.CanvasTexture(c),depthTest:false})}
+ const s=new T.Sprite(LM[k]);s.scale.set(8,1,1);s.position.set(x,h,z);s.renderOrder=9;s.raycast=()=>{};par.add(s)}
+// ===== กลุ่มอุปกรณ์ (ลากย้ายได้) =====
+const NM={RESIN:'กลุ่มเรซิ่น + ชั้น +6 m',RECYCLE:'กลุ่มถัง Recycle 1/2',COND:'Condensate Tank + Pump',HEX:'Cooling Unit (HEX)',FEED:'Filtrated Liquor Tank + Feed Pump',CRET:'Condensate Return (จุดต่อ)',HOT:'Hot Water (จุดต่อ)',COOL:'Cooling Water (จุดต่อ)',NAOH:'NaOH 50% Tank + Pump',HCL:'HCL 35% Tank + Pump'};
+const DEF={RESIN:[-8.9,-2.75],RECYCLE:[10.5,-2.75],COND:[22,-2.75],HEX:[16,-17],FEED:[5.5,-33.5],CRET:[15.3,-33.5],HOT:[18.6,-33.5],COOL:[21.9,-32],NAOH:[1.5,-.5],HCL:[-1,-.5]};
+let SV={};try{SV=JSON.parse(localStorage.getItem('np3d_layout2')||'{}')}catch(e){}
+const ADJ=SV.a||{};let SEL=null;
+const G={};for(const k in DEF){const p=(SV.g&&SV.g[k])||DEF[k],o=new T.Group();o.position.set(p[0],0,p[1]);o.userData.k=k;S.add(o);G[k]={o}}
+function tank(k,x,z,r,h,c,name,ex,y0){y0=y0||0;const o=G[k].o,m=new T.Mesh(new T.CylinderGeometry(r,r,h,32),new T.MeshLambertMaterial({color:c,transparent:!!ex,opacity:ex?.55:1}));
+ m.position.set(x,y0+h/2,z);o.add(m);const t=new T.Mesh(new T.CylinderGeometry(r,r*.6,r*.3,32),m.material);t.position.set(x,y0+h+r*.15,z);o.add(t);label(o,name,x,z,y0+h+r+1.2)}
+function box(k,x,z,w,h,d,c,name,y0){y0=y0||0;const o=G[k].o,m=new T.Mesh(new T.BoxGeometry(w,h,d),mat(c));m.position.set(x,y0+h/2,z);o.add(m);if(name)label(o,name,x,z,y0+h+1.2)}
+function pump(k,x,z,name,y0){y0=y0||0;const o=G[k].o;for(const d of[-.5,.5]){const m=new T.Mesh(new T.BoxGeometry(.7,.6,.9),mat(0x2e7d32));m.position.set(x+d,y0+.35,z);o.add(m)}label(o,name,x,z,y0+1.8)}
+// RESIN: ชั้น +6 m
+{const o=G.RESIN.o,pl=new T.Mesh(new T.BoxGeometry(23.8,.3,7.5),new T.MeshLambertMaterial({color:0x7d8896,transparent:true,opacity:.5}));pl.position.set(0,5.85,0);o.add(pl);
+ label(o,'Platform +6.0 m',0,-4.3,6.8,'#ffd43b');
+ [-11.9,-6.1,0,6.1,11.9].forEach(x=>[-3.75,3.75].forEach(z=>{const c=new T.Mesh(new T.CylinderGeometry(.12,.12,5.8,8),mat(0x5b6673));c.position.set(x,2.9,z);o.add(c)}));
+ const legs=(x)=>[[-1,-1],[1,-1],[-1,1],[1,1]].forEach(a=>{const l=new T.Mesh(new T.CylinderGeometry(.07,.07,.5,8),mat(0x444444));l.position.set(x+a[0]*.84,6.25,a[1]*.84);o.add(l)});
+ [[-10.2,'01'],[-6.8,'02'],[-3.4,'03'],[0,'04']].forEach(a=>{tank('RESIN',a[0],0,1.2,5,0x8a97a6,'Resin Tank '+a[1]+' (Existing)',0,6.5);legs(a[0])});
+ legs(3.4);tank('RESIN',3.4,0,1.2,5,0xc02bd0,'Resin 5 NuosepHP 10,000 L',0,6.5);
+ box('RESIN',7.3,0,3.6,.34,.34,0xf1f3f5,'Static Mixer 6"',6.83);
+ tank('RESIN',-3.1,0,1.8,4,0x9aa7b6,'Fine Liquor Tank 35m3',1);pump('RESIN',-3.1,2.75,'Fine Liq. Supply Pump A/B');
+ tank('RESIN',-8.6,0,1.8,4,0x9aa7b6,'Sweet Water Tank 35m3',1);pump('RESIN',-8.6,2.75,'Sweet Water Feed Pump A/B')}
+tank('NAOH',0,0,.5,1.6,0xe8e8e8,'NaOH 50% 500L',0,6);pump('NAOH',0,-1.25,'NaOH Pump A/B',6);
+tank('HCL',0,0,.3,1.2,0xe8e8e8,'HCL 35% 100L',0,6);pump('HCL',0,-1.25,'HCL Pump A/B',6);
+function skid(k,w,dp,cz){const o=G[k].o,dk=new T.Mesh(new T.BoxGeometry(w,.3,dp),mat(0x6b7684));dk.position.set(0,5.87,cz);o.add(dk);
+ [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(a=>{const l=new T.Mesh(new T.CylinderGeometry(.08,.08,5.7,8),mat(0x5b6673));l.position.set(a[0]*(w/2-.1),2.85,cz+a[1]*(dp/2-.1));o.add(l)})}
+skid('NAOH',2.2,3.2,-.6);skid('HCL',2.2,3.2,-.6);
+tank('RECYCLE',-2.5,0,1.2,3.5,0x5aa08a,'Recycle 1 Tank 15m3');pump('RECYCLE',-2.5,4.5,'Recycle 1 Pump A/B');
+tank('RECYCLE',3,0,2,5,0x5aa08a,'Recycle 2 Tank 60m3');pump('RECYCLE',3,4.5,'Recycle 2 Pump A/B');
+tank('COND',0,0,1.8,4.5,0x5aa08a,'Condensate Tank 45m3');pump('COND',0,4.5,'Cond. Pump A/B');
+box('HEX',0,0,1.6,2,1,0x9fb4c8,'Cooling Unit (HEX)');
+tank('FEED',0,0,1.8,5,0x9aa7b6,'Filtrated Liquor Tank 35m3',1);pump('FEED',-2.5,2,'Feed Pump A/B');box('FEED',-2.5,6,.9,1.6,.9,0x6b7a8c,'Bag Filter');
+tank('CRET',0,0,.9,4,0xe58b8b,'Condensate Return',1);tank('HOT',0,0,1.2,4,0xe58b8b,'Hot Water',1);tank('COOL',0,0,.8,3,0x2aa5c9,'Cooling Water',1);
+// ===== ท่อ (สร้างใหม่ทุกครั้งที่ย้ายกลุ่ม) =====
+const P=new T.Group();S.add(P);let FL=[];
+const Lw=k=>(x,z,h)=>[G[k].o.position.x+x,G[k].o.position.z+z,h];
+function pipe(col,pts,r,id){r=r||.08;const hl=id&&id===SEL;if(hl)r*=1.5;const q=pts.map(p=>new T.Vector3(p[0],p[2],p[1])),mt=mat(hl?0xffffff:col);
+ for(let i=1;i<q.length;i++){const a=q[i-1],b=q[i],L=a.distanceTo(b);if(L<.01)continue;const m=new T.Mesh(new T.CylinderGeometry(r,r,L,10),mt);
+  m.position.copy(a).add(b).multiplyScalar(.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),b.clone().sub(a).normalize());m.userData.pid=id;P.add(m);
+  const j=new T.Mesh(new T.SphereGeometry(r,10,8),mt);j.position.copy(a);j.userData.pid=id;P.add(j)}
+ const seg=[];let tot=0;for(let i=1;i<q.length;i++){const l=q[i-1].distanceTo(q[i]);seg.push(l);tot+=l}if(tot<.5)return;
+ const n=Math.max(1,Math.round(tot/6));for(let k=0;k<n;k++){const c=new T.Mesh(new T.ConeGeometry(.38,.9,12),mat(0xffffff));P.add(c);FL.push({c,q,seg,tot,o:k/n})}}
+function valve(a,ax,t){const g=new T.Group(),col=t==='b'?0xff922b:0xc92a2a;
+ if(t==='b')g.add(new T.Mesh(new T.CylinderGeometry(.3,.3,.22,20),mat(col)));
+ else{const c1=new T.Mesh(new T.ConeGeometry(.28,.4,12),mat(col));c1.position.y=.2;const c2=c1.clone();c2.rotation.x=Math.PI;c2.position.y=-.2;g.add(c1,c2)}
+ const st=new T.Mesh(new T.BoxGeometry(.5,.06,.06),mat(0x222222));st.position.x=.3;g.add(st);const hw=new T.Mesh(new T.SphereGeometry(.13,10,8),mat(col));hw.position.x=.58;g.add(hw);
+ if(ax==='x')g.rotation.z=Math.PI/2;if(ax==='z')g.rotation.x=Math.PI/2;g.position.set(a[0],a[2],a[1]);P.add(g);if(t==='b')label(P,'Butterfly Valve',a[0],a[1],a[2]+1.3,'#ffa94d')}
+function reducer(x,z,h,rz,rt,rb,len){const m=new T.Mesh(new T.CylinderGeometry(rt,rb,len,16),mat(0x4dabf7));m.rotation.z=rz;m.position.set(x,h,z);P.add(m)}
+const GM={},AXD={x:new T.Vector3(1,0,0),y:new T.Vector3(0,1,0),z:new T.Vector3(0,0,1)};['x','y','z'].forEach((a,i)=>GM[a]=new T.MeshBasicMaterial({color:[0xff3b3b,0x37d67a,0x3b82ff][i],depthTest:false}));
+function gizmo(){if(!SEL||!HND[SEL])return;const h=HND[SEL],o=new T.Vector3(h[0],h[2],h[1]);
+ (SEL==='MAIN'?['y','z']:['x','y','z']).forEach(a=>{const D=AXD[a],q=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,1,0),D);
+  const sh=new T.Mesh(new T.CylinderGeometry(.1,.1,2.5,8),GM[a]),cn=new T.Mesh(new T.ConeGeometry(.4,.9,12),GM[a]);
+  sh.position.copy(o).addScaledVector(D,1.25);cn.position.copy(o).addScaledVector(D,2.9);sh.quaternion.copy(q);cn.quaternion.copy(q);
+  [sh,cn].forEach(m=>{m.userData.axis=a;m.renderOrder=10;P.add(m)})});
+ const b=new T.Mesh(new T.SphereGeometry(.35,12,10),new T.MeshBasicMaterial({color:0xffffff,depthTest:false}));b.position.copy(o);b.renderOrder=10;P.add(b)}
+const HND={},NAMEP={SUGAR:'น้ำตาล → ท่อรวม',HOT:'Hot Water → ท่อรวม',REC1:'Recycle 1 → รวมท่อ',REC2:'Recycle 2 → รวมท่อ',JHEX:'ท่อรวม → HEX',CONDOUT:'HEX → Static Mixer (5")',COOL:'Cooling Water → HEX',FILL:'Cond. fill 4"',MAIN:'Main 6" (gravity)',NAOH:'NaOH → ท่อรวม (1/2")',HCL:'HCL → ท่อรวม (1/2")'};
+function buildPipes(){for(const k in HND)delete HND[k];P.traverse(o=>{if(o.geometry)o.geometry.dispose()});P.clear();FL=[];
+ const Rz=Lw('RESIN'),Cy=Lw('RECYCLE'),Cd=Lw('COND'),Hx=Lw('HEX'),Fd=Lw('FEED'),Cr=Lw('CRET'),Ho=Lw('HOT'),Co=Lw('COOL'),Na=Lw('NAOH'),Hc=Lw('HCL');
+ const YEL=0xf2b705,BLU=0x1f6fff,GRN=0x37b24d,LIM=0x94d82d,MAG=0xd6336c,ORG=0xff7a00,CYA=0x16c5c5,RED=0xe03131,PUR=0x845ef7;
+ const rt=(A,B,H,h0,h1)=>[[A[0],A[1],h0],[A[0],A[1],H],[B[0],A[1],H],[B[0],B[1],H],[B[0],B[1],h1]];
+ const rj=Rz(9.3,-3.25,0);
+ const rt2=(id,A,B,H,h0,h1)=>{const a=ADJ[id]||{},Hh=H+(a.y||0),zm=A[1]+(a.z||0),xm=B[0]+(a.x||0);HND[id]=[xm,zm,Hh];return [[A[0],A[1],h0],[A[0],A[1],Hh],[A[0],zm,Hh],[xm,zm,Hh],[xm,B[1],Hh],[B[0],B[1],Hh],[B[0],B[1],h1]]};
+ // น้ำตาลเข้า: Filtrated tank -> Pump -> Bag filter -> ท่อรวม
+ pipe(YEL,[Fd(0,1.8,.8),Fd(-2.5,1.8,.8),Fd(-2.5,6,.8)]);valve(Fd(-1.2,1.8,.8),'x','g');
+ pipe(YEL,rt2('SUGAR',Fd(-2.5,6,0),rj,10.2,.8,10.2),0,'SUGAR');
+ pipe(RED,rt2('HOT',Ho(0,1.2,0),rj,9.6,3,9.6),0,'HOT');
+ // Condensate / Recycle -> HEX -> Static mixer
+ const J=Cd(-2,4.5,.8),hx=Hx(0,0,0);
+ pipe(BLU,[Cd(0,1.8,.8),Cd(0,4.5,.8)]);valve(Cd(0,3.1,.8),'z','g');pipe(BLU,[Cd(0,4.5,.8),J]);
+ pipe(GRN,[Cy(-2.5,1.2,.8),Cy(-2.5,4.5,.8)]);valve(Cy(-2.5,2.85,.8),'z','g');pipe(GRN,rt2('REC1',Cy(-2.5,4.5,0),J,1.5,.8,.8),0,'REC1');
+ pipe(LIM,[Cy(3,2,.8),Cy(3,4.5,.8)]);valve(Cy(3,3.25,.8),'z','g');pipe(LIM,rt2('REC2',Cy(3,4.5,0),J,2,.8,.8),0,'REC2');
+ pipe(BLU,rt2('JHEX',J,[hx[0],hx[1]+.5],.8,.8,1),0,'JHEX');
+ const ox=hx[0]-.4,oz=hx[1];
+ pipe(BLU,[[ox,oz,2],[ox,oz,4]]);reducer(ox,oz,4.3,0,.1,.08,.6);
+ pipe(BLU,rt2('CONDOUT',[ox,oz],rj,12.5,4.6,11.8),.1,'CONDOUT');reducer(rj[0],rj[1],11.5,0,.1,.12,.6);
+ label(P,'Cond 4" > 5" (Reducer)',ox,oz,5.6,'#74c0fc');label(P,'5" > 6" (Reducer)',rj[0],rj[1],13.3,'#74c0fc');
+ const cw=Co(0,.8,0);pipe(CYA,rt2('COOL',cw,[hx[0]+.5,hx[1]],5.4,.5,2),0,'COOL');pipe(CYA,[Hx(.8,.3,1.2),Hx(3.5,.3,1.2)]);label(P,'Cooling return',hx[0]+3.5,hx[1]+.3,2.4,'#66d9e8');
+ const cr=Cr(0,.9,0),cd=Cd(0,0,0);pipe(BLU,rt2('FILL',cr,cd,5.8,3,5.1),0,'FILL');valve([cd[0],cd[1],5.5],'y','g');label(P,'Cond. fill 4"',cr[0],cr[1]+4,4,'#74c0fc');
+ // Main 6" gravity +6 m จาก Resin 5 -> Recycle 1/2 (เข้าหัวถัง)
+ const ma=ADJ.MAIN||{},MH=6+(ma.y||0),o5=Rz(3.4,0,0),Zh=G.RECYCLE.o.position.z+7+(ma.z||0),r1=Cy(-2.5,0,0),r2=Cy(3,0,0);HND.MAIN=[o5[0],Zh,MH];
+ pipe(PUR,[Rz(3.4,1.2,6.8),Rz(3.4,1.8,6.8),Rz(3.4,1.8,MH),[o5[0],Zh,MH]],.12,'MAIN');valve(Rz(3.4,1.5,6.8),'z','g');
+ pipe(PUR,[[o5[0],Zh,MH],[r1[0],Zh,MH],[r1[0],r1[1],MH],[r1[0],r1[1],3.9]],.12,'MAIN');valve([r1[0],(Zh+r1[1])/2,MH],'z','b');
+ pipe(PUR,[[o5[0],Zh,MH],[r2[0],Zh,MH],[r2[0],r2[1],MH],[r2[0],r2[1],5.7]],.12,'MAIN');valve([r2[0],(Zh+r2[1])/2,MH],'z','b');
+ label(P,'Main 6" +'+MH.toFixed(1)+' m (gravity)',o5[0],Zh,MH+1.2,'#b197fc');
+ // Resin 5 ขาออกน้ำตาล -> Fine liquor / Sweet water (ใต้ชั้น)
+ pipe(YEL,[Rz(3.4,-1.2,6.8),Rz(3.4,-2.75,6.8),Rz(3.4,-2.75,4.6),Rz(-3.1,-2.75,4.6),Rz(-3.1,-1.8,4.6)]);valve(Rz(3.4,-2,6.8),'z','g');valve(Rz(-3.1,-2.3,4.6),'z','g');
+ pipe(YEL,[Rz(-3.1,1.8,.8),Rz(-3.1,2.75,.8),Rz(-3.1,6.25,.8)]);valve(Rz(-3.1,2.2,.8),'z','g');label(P,'Fine Liquor Supply (to plant)',Rz(-3.1,6.25,0)[0],Rz(-3.1,6.25,0)[1],1.8,'#ffe066');
+ pipe(0x74c0fc,[Rz(-8.6,1.8,.8),Rz(-8.6,2.75,.8),Rz(-8.6,6.25,.8)]);valve(Rz(-8.6,2.2,.8),'z','g');label(P,'Sweet Water Supply (to plant)',Rz(-8.6,6.25,0)[0],Rz(-8.6,6.25,0)[1],1.8,'#a5d8ff');
+ // ท่อรวม -> Static mixer -> Resin 5
+ pipe(0xdfe3e8,[Rz(9.3,-3.25,11.2),Rz(9.3,-3.25,7),Rz(9.3,0,7),Rz(4.6,0,7)],.12);valve(Rz(5,0,7),'x','g');
+ // Dosing 1/2"
+ pipe(MAG,[Na(0,-.5,6.4),Na(0,-1.25,6.4)],.03);valve(Na(0,-.9,6.4),'z','g');pipe(MAG,rt2('NAOH',Na(0,-1.25,0),Rz(9.3,-2.05,0),6.6,6.6,7),.03,'NAOH');
+ pipe(ORG,[Hc(0,-.3,6.4),Hc(0,-1.25,6.4)],.03);valve(Hc(0,-.8,6.4),'z','g');pipe(ORG,rt2('HCL',Hc(0,-1.25,0),Rz(9.3,-1.45,0),6.4,6.4,7),.03,'HCL');
+ label(P,'NaOH 1/2"',Na(0,-2.6,0)[0],Na(0,-2.6,0)[1],7.8,'#faa2c1');label(P,'HCL 1/2"',Hc(0,-2.6,0)[0],Hc(0,-2.6,0)[1],7.8,'#ffc078');gizmo()}
+buildPipes();
+const LG=[['Liquid Sugar / Liquor',0xf2b705],['Mixed feed → Static Mixer 6"',0xdfe3e8],['NaOH 50% (1/2")',0xd6336c],['HCL 35% (1/2")',0xff7a00],['Condensate (4" > 5" > 6")',0x1f6fff],['Hot Water',0xe03131],['Cooling Water',0x16c5c5],['Recycle 1 (Rinse NaOH) → รวมท่อ → HEX',0x37b24d],['Recycle 2 (Rinse + HCL) → รวมท่อ → HEX',0x94d82d],['Main 6" Resin 5 → Recycle (gravity)',0x845ef7],['Butterfly Valve',0xff922b],['Valve (ก่อนเข้า/ออกถัง)',0xc92a2a]];
+$('lg').innerHTML+=LG.map(a=>`<div><i style="background:#${a[1].toString(16).padStart(6,'0')}"></i>${a[0]}</div>`).join('')+'<small>ลูกศรขาว = ทิศทางการไหล · Resin 1-4 สีเทา ไม่แสดงการไหล</small>';
+// ===== กล้อง + ลากย้ายกลุ่ม =====
+const home={th:.9,ph:1.0,d:115};let th=home.th,ph=home.ph,d=home.d;const tg=new T.Vector3(3,3,-8);
+function upd(){cam.position.set(tg.x+d*Math.sin(ph)*Math.sin(th),tg.y+d*Math.cos(ph),tg.z+d*Math.sin(ph)*Math.cos(th));cam.lookAt(tg)}
+const ray=new T.Raycaster(),mv=new T.Vector2(),gp=new T.Plane(new T.Vector3(0,1,0),0),off=new T.Vector3();
+let drag=null,ax=null,edit=true,snap=false,need=false,pd=0,tap=null;const ptr=new Map();
+function setRay(e){const r=cv.getBoundingClientRect();mv.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(mv,cam)}
+function hit(e){setRay(e);const gz=P.children.filter(m=>m.userData.axis);let h=ray.intersectObjects(gz,false)[0];if(h)return{t:'ax',a:h.object.userData.axis};
+ const ms=P.children.filter(m=>m.userData.pid);for(const k in G)G[k].o.traverse(m=>{if(m.isMesh)ms.push(m)});
+ h=ray.intersectObjects(ms,false)[0];if(!h)return null;const o=h.object;if(o.userData.pid)return{t:'pipe',id:o.userData.pid};
+ let q=o;while(q&&!q.userData.k)q=q.parent;return q?{t:'grp',k:q.userData.k}:null}
+function axT(O,D){const r=ray.ray,w=O.clone().sub(r.origin),b=D.dot(r.direction),dd=D.dot(w),ee=r.direction.dot(w),den=1-b*b;return Math.abs(den)<1e-4?null:(b*ee-dd)/den}
+function save(){try{const g={};for(const k in G)g[k]=[G[k].o.position.x,G[k].o.position.z];localStorage.setItem('np3d_layout2',JSON.stringify({g,a:ADJ}))}catch(e){}}
+const ginfo=()=>`${NM[drag]}  X ${G[drag].o.position.x.toFixed(1)} · Z ${G[drag].o.position.z.toFixed(1)} m`;
+function showSel(){if(!SEL){$('in').textContent='ลากกลุ่มอุปกรณ์เพื่อย้าย · คลิกท่อเพื่อขยับ';return}const a=ADJ[SEL]||{},f=v=>((v||0)>=0?'+':'')+(v||0).toFixed(1);let w='';
+ if(SEL==='MAIN'){const H=6+(a.y||0);if(H<5.8)w=' ⚠ ต่ำกว่าปากถัง Recycle 2 ไหลตามแรงโน้มถ่วงไม่ได้';else if(H>6.8)w=' ⚠ สูงกว่าปากท่อขาออก Resin 5 (6.8 m) ไหลตามแรงโน้มถ่วงไม่ได้'}
+ $('in').textContent=`ท่อ: ${NAMEP[SEL]} · X ${f(a.x)} Y ${f(a.y)} Z ${f(a.z)} m${w}`}
+cv.addEventListener('pointerdown',e=>{if(edit){const h=hit(e);
+  if(h&&h.t==='ax'){const hp=HND[SEL],O=new T.Vector3(hp[0],hp[2],hp[1]),D=AXD[h.a],t0=axT(O,D);if(t0!==null){ax={a:h.a,O,D,t0,p0:(ADJ[SEL]&&ADJ[SEL][h.a])||0};cv.setPointerCapture(e.pointerId);return}}
+  if(h&&h.t==='grp'){drag=h.k;const p=new T.Vector3();ray.ray.intersectPlane(gp,p);off.copy(p).sub(G[drag].o.position);cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing';$('in').textContent=ginfo();return}
+  if(h&&h.t==='pipe'){SEL=h.id;need=true;showSel();return}
+  tap=[e.clientX,e.clientY]}
+ cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,[e.clientX,e.clientY])});
+function end(e){if(ax){save();ax=null;return}if(drag){save();drag=null;cv.style.cursor='default';return}
+ if(tap&&SEL&&Math.hypot(e.clientX-tap[0],e.clientY-tap[1])<4){SEL=null;need=true;showSel()}tap=null;ptr.delete(e.pointerId);pd=0}
+cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
+cv.addEventListener('pointermove',e=>{
+ if(ax){setRay(e);const t=axT(ax.O,ax.D);if(t===null)return;let v=ax.p0+t-ax.t0;if(snap)v=Math.round(v*2)/2;(ADJ[SEL]=ADJ[SEL]||{})[ax.a]=v;need=true;showSel();return}
+ if(drag){setRay(e);const p=new T.Vector3();if(!ray.ray.intersectPlane(gp,p))return;let x=p.x-off.x,z=p.z-off.z;if(snap){x=Math.round(x*2)/2;z=Math.round(z*2)/2}
+  G[drag].o.position.set(x,0,z);need=true;$('in').textContent=ginfo();return}
+ if(!ptr.has(e.pointerId)){if(edit){const h=hit(e);cv.style.cursor=h?(h.t==='ax'?'pointer':'grab'):'default';
+   if(!SEL)$('in').textContent=!h?'ลากกลุ่มอุปกรณ์เพื่อย้าย · คลิกท่อเพื่อขยับ':h.t==='grp'?NM[h.k]+' (ลากเพื่อย้าย)':h.t==='pipe'?'ท่อ: '+NAMEP[h.id]+' (คลิกเพื่อเลือก)':''}return}
+ const o=ptr.get(e.pointerId);
+ if(ptr.size===1){th-=(e.clientX-o[0])*.006;ph=Math.min(1.5,Math.max(.15,ph-(e.clientY-o[1])*.006))}
+ else if(ptr.size===2){const v=[...ptr.entries()].map(([k,p])=>k===e.pointerId?[e.clientX,e.clientY]:p);const nd=Math.hypot(v[0][0]-v[1][0],v[0][1]-v[1][1]);if(pd)d=Math.min(180,Math.max(10,d*pd/nd));pd=nd}
+ ptr.set(e.pointerId,[e.clientX,e.clientY])});
+cv.addEventListener('wheel',e=>{e.preventDefault();d=Math.min(180,Math.max(10,d*(1+e.deltaY*.001)))},{passive:false});
+$('rs').onclick=()=>{th=home.th;ph=home.ph;d=home.d};
+$('ed').onclick=e=>{edit=!edit;e.target.classList.toggle('on',edit);e.target.textContent='โหมดย้าย: '+(edit?'เปิด':'ปิด')};
+$('sn').onclick=e=>{snap=!snap;e.target.classList.toggle('on',snap);e.target.textContent='Snap 0.5 m: '+(snap?'เปิด':'ปิด')};
+$('rl').onclick=()=>{for(const k in DEF)G[k].o.position.set(DEF[k][0],0,DEF[k][1]);for(const k in ADJ)delete ADJ[k];SEL=null;save();need=true;showSel()};
+$('rp').onclick=()=>{if(SEL){delete ADJ[SEL];save();need=true;showSel()}};
+let run=true;$('pl').onclick=e=>{run=!run;e.target.textContent=run?'หยุดการไหล':'เริ่มการไหล'};
+function rs(){RN.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',rs);rs();
+const up=new T.Vector3(0,1,0);let last=performance.now();
+(function loop(t){const dt=(t-last)/1000;last=t;if(need){buildPipes();need=false}
+ for(const f of FL){if(run)f.o=(f.o+5*dt/f.tot)%1;let s=f.o*f.tot,i=0;while(i<f.seg.length-1&&s>f.seg[i]){s-=f.seg[i];i++}
+  const a=f.q[i],b=f.q[i+1],u=Math.min(1,s/f.seg[i]||0);f.c.position.lerpVectors(a,b,u);f.c.quaternion.setFromUnitVectors(up,b.clone().sub(a).normalize())}
+ upd();RN.render(S,cam);requestAnimationFrame(loop)})(last);
+</script></body></html>
